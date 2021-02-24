@@ -1,0 +1,63 @@
+name: Build and Deploy to Github Pages
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'ci skip')"
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: website
+
+    strategy:
+      matrix:
+        node-version: [12.x]
+
+    steps:
+      - name: Checkout Branch
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Setup git repogitories
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh/
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key.pem
+          chmod 600 ~/.ssh/deploy_key.pem
+          git config --global user.email "bot@bot.dev"
+          git config --global user.name "bot"
+      - name: Build
+        run: |
+          yarn install
+          yarn run build
+      - name: Clone github-pages repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
+        run: |
+          git clone https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/[USER]/[REPO_NAME].git
+      - name: Deploy to GitHub Pages
+        env:
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/deploy_key.pem -o StrictHostKeyChecking=no -F /dev/null
+        run: |
+          cd [REPO_NAME]
+          git config remote.origin.url "git@github.com:[USER]/[REPO_NAME].git"
+          cp -pfr ../build/* .
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "[actions] update contents"
+            git pull origin master
+            git push origin master
+          fi
